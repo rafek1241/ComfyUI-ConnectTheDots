@@ -1,0 +1,20 @@
+{
+  "name": "comfyui-connect-the-dots",
+  "version": "1.0.0",
+  "description": "ComfyUI extension. No more stupid scrolling across the entire graph and then scrolling back just to connect a VAE node.",
+  "main": "build/connectTheDots.js",
+  "type": "module",
+  "author": "Juan Treminio <jtreminio@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jtreminio/ComfyUI-ConnectTheDots"
+  },
+  "scripts": {
+    "build": "tsc --noEmit && node ./scripts/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.2"
+  }
+}
