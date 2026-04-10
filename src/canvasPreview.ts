@@ -110,6 +110,9 @@ export const canvasPreviewController = (
     const PREVIEW_VERTICAL_RATIO = 0.25;
     const PREVIEW_FRAME_PADDING = 96;
     const MIN_PREVIEW_SCALE = 0.08;
+    const MIN_PREVIEW_FIT_SCALE = 0.6;
+    const PREVIEW_TARGET_HORIZONTAL_PADDING = 72;
+    const PREVIEW_TARGET_VERTICAL_PADDING = 24;
     const PREVIEW_DASH_SPEED = 0.35;
     const PREVIEW_DASH_LENGTH = 0.07;
     const PREVIEW_DASH_GAP = 0.055;
@@ -286,43 +289,29 @@ export const canvasPreviewController = (
         canvas.setDirty(true, true);
     };
 
-    const centerOnNodeAtScale = (
-        node: types.GraphNode,
+    const getViewportMetrics = (
         scale: number,
         panel?: types.PanelLike | null,
-    ): void => {
-        const canvas = getCanvas();
-        if (!canvas) {
-            return;
-        }
-
-        if (canvas.ds) {
-            canvas.ds.scale = clampScale(scale);
-        }
-
-        if (canvas.centerOnNode && !panel) {
-            canvas.centerOnNode(node);
-            return;
-        }
-
-        focusNodeAtScale(node, scale, panel);
-    };
-
-    const focusBoundsAtScale = (
-        bounds: { x: number; y: number; width: number; height: number },
-        scale: number,
-        panel?: types.PanelLike | null,
-    ): boolean => {
+    ): {
+        canvas: types.CanvasLike;
+        ds: types.CanvasDisplaySpace;
+        nextScale: number;
+        viewWidth: number;
+        viewHeight: number;
+        occludedLeft: number;
+        occludedRight: number;
+        usableWidth: number;
+    } | null => {
         const canvas = getCanvas();
         if (!canvas?.ds || !canvas.canvas) {
-            return false;
+            return null;
         }
 
         const devicePixelRatio = window.devicePixelRatio || 1;
         const canvasWidth = canvas.canvas.width;
         const canvasHeight = canvas.canvas.height;
         if (!canvasWidth || !canvasHeight) {
-            return false;
+            return null;
         }
 
         const nextScale = clampScale(scale);
@@ -332,15 +321,111 @@ export const canvasPreviewController = (
         const occludedLeft = panelOcclusion.left / nextScale;
         const occludedRight = panelOcclusion.right / nextScale;
         const usableWidth = viewWidth - occludedLeft - occludedRight;
-        if (usableWidth <= 0) {
+        if (usableWidth <= 0 || viewHeight <= 0) {
+            return null;
+        }
+
+        return {
+            canvas,
+            ds: canvas.ds,
+            nextScale,
+            viewWidth,
+            viewHeight,
+            occludedLeft,
+            occludedRight,
+            usableWidth,
+        };
+    };
+
+    const focusBoundsAtScale = (
+        bounds: { x: number; y: number; width: number; height: number },
+        scale: number,
+        panel?: types.PanelLike | null,
+    ): boolean => {
+        const metrics = getViewportMetrics(scale, panel);
+        if (!metrics) {
             return false;
         }
 
-        canvas.ds.scale = nextScale;
-        canvas.ds.offset[0] =
-            -bounds.x - bounds.width * 0.5 + occludedLeft + usableWidth * 0.5;
-        canvas.ds.offset[1] =
-            -bounds.y - bounds.height * 0.5 + viewHeight * 0.5;
+        metrics.ds.scale = metrics.nextScale;
+        metrics.ds.offset[0] =
+            -bounds.x -
+            bounds.width * 0.5 +
+            metrics.occludedLeft +
+            metrics.usableWidth * 0.5;
+        metrics.ds.offset[1] =
+            -bounds.y - bounds.height * 0.5 + metrics.viewHeight * 0.5;
+        return true;
+    };
+
+    const keepNodeVisibleAtScale = (
+        node: types.GraphNode,
+        scale: number,
+        baseView?: types.CanvasView | null,
+        panel?: types.PanelLike | null,
+    ): boolean => {
+        const metrics = getViewportMetrics(scale, panel);
+        if (!metrics) {
+            return false;
+        }
+
+        const bounds = getNodeBounds(node);
+        const centerX = bounds.x + bounds.width * 0.5;
+        const centerY = bounds.y + bounds.height * 0.5;
+        let offsetX =
+            -centerX + metrics.occludedLeft + metrics.usableWidth * 0.5;
+        let offsetY = -centerY + metrics.viewHeight * 0.5;
+
+        if (baseView) {
+            const baseScale = clampScale(baseView.scale);
+            const scaleRatio = baseScale / metrics.nextScale;
+            offsetX = (centerX + baseView.offset[0]) * scaleRatio - centerX;
+            offsetY = (centerY + baseView.offset[1]) * scaleRatio - centerY;
+        }
+
+        const horizontalPadding =
+            PREVIEW_TARGET_HORIZONTAL_PADDING / metrics.nextScale;
+        const verticalPadding =
+            PREVIEW_TARGET_VERTICAL_PADDING / metrics.nextScale;
+        const minLeft = metrics.occludedLeft + horizontalPadding;
+        const maxRight =
+            metrics.viewWidth - metrics.occludedRight - horizontalPadding;
+        const minTop = verticalPadding;
+        const maxBottom = metrics.viewHeight - verticalPadding;
+
+        if (bounds.width + horizontalPadding * 2 >= metrics.usableWidth) {
+            offsetX =
+                -bounds.x -
+                bounds.width * 0.5 +
+                metrics.occludedLeft +
+                metrics.usableWidth * 0.5;
+        } else {
+            const left = bounds.x + offsetX;
+            const right = bounds.x + bounds.width + offsetX;
+            if (left < minLeft) {
+                offsetX += minLeft - left;
+            }
+            if (right > maxRight) {
+                offsetX -= right - maxRight;
+            }
+        }
+
+        if (bounds.height + verticalPadding * 2 >= metrics.viewHeight) {
+            offsetY = -bounds.y + verticalPadding;
+        } else {
+            const top = bounds.y + offsetY;
+            const bottom = bounds.y + bounds.height + offsetY;
+            if (top < minTop) {
+                offsetY += minTop - top;
+            }
+            if (bottom > maxBottom) {
+                offsetY -= bottom - maxBottom;
+            }
+        }
+
+        metrics.ds.scale = metrics.nextScale;
+        metrics.ds.offset[0] = offsetX;
+        metrics.ds.offset[1] = offsetY;
         return true;
     };
 
@@ -395,10 +480,17 @@ export const canvasPreviewController = (
             canvasHeightCss / framedBounds.height,
         );
 
-        const nextScale =
-            Number.isFinite(maxScaleToFit) && maxScaleToFit > 0
-                ? Math.min(baseScale, maxScaleToFit)
-                : baseScale;
+        if (
+            !Number.isFinite(maxScaleToFit) ||
+            maxScaleToFit < MIN_PREVIEW_FIT_SCALE
+        ) {
+            return false;
+        }
+
+        const nextScale = Math.min(
+            Math.max(baseScale, MIN_PREVIEW_FIT_SCALE),
+            maxScaleToFit,
+        );
 
         return focusBoundsAtScale(framedBounds, nextScale, panel);
     };
@@ -418,7 +510,30 @@ export const canvasPreviewController = (
             return;
         }
 
-        centerOnNodeAtScale(selection.candidate.node, scale, selection.panel);
+        const fallbackScale = Math.max(scale, MIN_PREVIEW_FIT_SCALE);
+        const currentView = captureCanvasView();
+        const baseView =
+            !currentView.graph ||
+            currentView.graph === selection.candidate.node.graph
+                ? currentView
+                : null;
+
+        if (
+            keepNodeVisibleAtScale(
+                selection.candidate.node,
+                fallbackScale,
+                baseView,
+                selection.panel,
+            )
+        ) {
+            return;
+        }
+
+        focusNodeAtScale(
+            selection.candidate.node,
+            fallbackScale,
+            selection.panel,
+        );
     };
 
     const queueCandidateFocus = (
@@ -829,42 +944,21 @@ export const canvasPreviewController = (
         scale: number,
         panel?: types.PanelLike | null,
     ): boolean => {
-        const canvas = getCanvas();
-        if (!canvas?.ds || !canvas.canvas) {
+        const metrics = getViewportMetrics(scale, panel);
+        if (!metrics) {
             return false;
         }
 
-        const bounds = node.boundingRect || [
-            node.pos?.[0] || 0,
-            node.pos?.[1] || 0,
-            node.size?.[0] || 0,
-            node.size?.[1] || 0,
-        ];
-        const devicePixelRatio = window.devicePixelRatio || 1;
-        const canvasWidth = canvas.canvas.width;
-        const canvasHeight = canvas.canvas.height;
-        if (!canvasWidth || !canvasHeight) {
-            return false;
-        }
-
-        const nextScale = clampScale(scale);
-        const viewWidth = canvasWidth / (nextScale * devicePixelRatio);
-        const viewHeight = canvasHeight / (nextScale * devicePixelRatio);
-        const panelOcclusion = getPanelOcclusion(canvas, panel);
-        const occludedLeft = panelOcclusion.left / nextScale;
-        const occludedRight = panelOcclusion.right / nextScale;
-        const usableWidth = viewWidth - occludedLeft - occludedRight;
-        if (usableWidth <= 0) {
-            return false;
-        }
+        const bounds = getNodeBounds(node);
 
         const targetCenterX =
-            occludedLeft + usableWidth * PREVIEW_HORIZONTAL_RATIO;
-        const targetTopY = viewHeight * PREVIEW_VERTICAL_RATIO;
+            metrics.occludedLeft +
+            metrics.usableWidth * PREVIEW_HORIZONTAL_RATIO;
+        const targetTopY = metrics.viewHeight * PREVIEW_VERTICAL_RATIO;
 
-        canvas.ds.scale = nextScale;
-        canvas.ds.offset[0] = -bounds[0] - bounds[2] * 0.5 + targetCenterX;
-        canvas.ds.offset[1] = -bounds[1] + targetTopY;
+        metrics.ds.scale = metrics.nextScale;
+        metrics.ds.offset[0] = -bounds.x - bounds.width * 0.5 + targetCenterX;
+        metrics.ds.offset[1] = -bounds.y + targetTopY;
         return true;
     };
 
