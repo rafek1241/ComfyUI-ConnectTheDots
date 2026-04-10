@@ -80,7 +80,6 @@ export interface CandidateDescriptor {
     slotIndex: number;
     slotName: string;
     typeName: string;
-    connect(): unknown;
 }
 
 export interface PropertyDescriptor {

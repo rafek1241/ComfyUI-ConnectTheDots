@@ -68,6 +68,8 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
     const handleCandidateSelect = ({
         panel,
         targetNode,
+        property,
+        mode,
         candidate,
         isConnected,
     }: types.CandidateSelection): void => {
@@ -78,7 +80,18 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
 
         const baseView =
             panel.__ctdBaseView || canvasPreview.captureCanvasView();
-        const link = candidate.connect();
+        const link =
+            mode === "input"
+                ? candidate.node.connect(
+                      candidate.slotIndex,
+                      targetNode,
+                      property.index,
+                  )
+                : targetNode.connect(
+                      property.index,
+                      candidate.node,
+                      candidate.slotIndex,
+                  );
         canvasPreview.restoreCanvasView(baseView);
         panel.__ctdBaseView = null;
 

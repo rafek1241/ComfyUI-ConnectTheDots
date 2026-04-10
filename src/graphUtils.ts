@@ -5,20 +5,61 @@ declare const LiteGraph: {
     ACTION?: unknown;
 };
 
+const candidateCollator = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: "base",
+});
+
+export interface PanelRenderCache {
+    graphNodes: types.GraphNode[];
+    nodeDisplayNames: WeakMap<types.GraphNode, string>;
+    typeDisplays: Map<unknown, string>;
+    inputCandidates: types.CandidateDescriptor[];
+    outputCandidates: types.CandidateDescriptor[];
+}
+
 const compareCandidates = (
     a: types.CandidateDescriptor,
     b: types.CandidateDescriptor,
 ): number => {
     return (
-        a.nodeName.localeCompare(b.nodeName, undefined, {
-            numeric: true,
-            sensitivity: "base",
-        }) ||
-        a.slotName.localeCompare(b.slotName, undefined, {
-            numeric: true,
-            sensitivity: "base",
-        })
+        candidateCollator.compare(a.nodeName, b.nodeName) ||
+        candidateCollator.compare(a.slotName, b.slotName)
     );
+};
+
+const buildBaseCandidates = (
+    nodes: types.GraphNode[],
+    mode: types.SlotDirection,
+    renderCache: PanelRenderCache,
+): types.CandidateDescriptor[] => {
+    return nodes
+        .flatMap((node) => {
+            const slots =
+                mode === "input" ? node.outputs || [] : node.inputs || [];
+            const fallbackPrefix = mode === "input" ? "output" : "input";
+
+            return slots.map((slot, slotIndex) => ({
+                node,
+                nodeName: getCachedNodeDisplayName(renderCache, node),
+                slotIndex,
+                slotName: getSlotDisplayName(
+                    slot,
+                    `${fallbackPrefix} ${slotIndex}`,
+                ),
+                typeName: getCachedTypeDisplay(renderCache, slot?.type),
+            }));
+        })
+        .sort(compareCandidates);
+};
+
+const getDisplayNameForRender = (
+    node: types.GraphNode | null | undefined,
+    renderCache?: PanelRenderCache,
+): string => {
+    return renderCache
+        ? getCachedNodeDisplayName(renderCache, node)
+        : getNodeDisplayName(node);
 };
 
 export const getSlotDisplayName = (
@@ -37,6 +78,24 @@ export const getNodeDisplayName = (
         node?.type ||
         `Node ${node?.id ?? "?"}`
     );
+};
+
+export const getCachedNodeDisplayName = (
+    renderCache: PanelRenderCache,
+    node: types.GraphNode | null | undefined,
+): string => {
+    if (!node) {
+        return getNodeDisplayName(node);
+    }
+
+    const cachedLabel = renderCache.nodeDisplayNames.get(node);
+    if (cachedLabel !== undefined) {
+        return cachedLabel;
+    }
+
+    const label = getNodeDisplayName(node);
+    renderCache.nodeDisplayNames.set(node, label);
+    return label;
 };
 
 export const getTypeDisplay = (type: types.SlotTypeValue): string => {
@@ -61,8 +120,56 @@ export const getTypeDisplay = (type: types.SlotTypeValue): string => {
     return String(type);
 };
 
+export const getCachedTypeDisplay = (
+    renderCache: PanelRenderCache,
+    type: types.SlotTypeValue,
+): string => {
+    if (renderCache.typeDisplays.has(type)) {
+        return renderCache.typeDisplays.get(type) as string;
+    }
+
+    const display = Array.isArray(type)
+        ? type
+              .map((value) => getCachedTypeDisplay(renderCache, value))
+              .join(", ")
+        : getTypeDisplay(type);
+
+    renderCache.typeDisplays.set(type, display);
+    return display;
+};
+
 export const getGraphNodes = (node: types.GraphNode): types.GraphNode[] => {
     return node.graph?.nodes || node.graph?._nodes || [];
+};
+
+export const createRenderCache = (
+    targetNode: types.GraphNode,
+): PanelRenderCache => {
+    const graphNodes = getGraphNodes(targetNode).filter(
+        (node): node is types.GraphNode => Boolean(node),
+    );
+    const candidateNodes = graphNodes.filter((node) => node !== targetNode);
+
+    const renderCache: PanelRenderCache = {
+        graphNodes,
+        nodeDisplayNames: new WeakMap(),
+        typeDisplays: new Map(),
+        inputCandidates: [],
+        outputCandidates: [],
+    };
+
+    renderCache.inputCandidates = buildBaseCandidates(
+        candidateNodes,
+        "input",
+        renderCache,
+    );
+    renderCache.outputCandidates = buildBaseCandidates(
+        candidateNodes,
+        "output",
+        renderCache,
+    );
+
+    return renderCache;
 };
 
 export const getGraphLink = (
@@ -99,6 +206,7 @@ export const getConnectedNodeLabel = (
     graph: types.GraphLike | null | undefined,
     linkId: number | null | undefined,
     side: types.SlotDirection,
+    renderCache?: PanelRenderCache,
 ): string | null => {
     const link = getGraphLink(graph, linkId);
     if (!link) {
@@ -108,41 +216,12 @@ export const getConnectedNodeLabel = (
     if (side === "input") {
         const originNode = graph?.getNodeById?.(link.origin_id);
         const originSlot = originNode?.outputs?.[link.origin_slot];
-        return `${getNodeDisplayName(originNode)} -> ${getSlotDisplayName(originSlot, `output ${link.origin_slot}`)}`;
+        return `${getDisplayNameForRender(originNode, renderCache)} -> ${getSlotDisplayName(originSlot, `output ${link.origin_slot}`)}`;
     }
 
     const targetNode = graph?.getNodeById?.(link.target_id);
     const targetSlot = targetNode?.inputs?.[link.target_slot];
-    return `${getNodeDisplayName(targetNode)} -> ${getSlotDisplayName(targetSlot, `input ${link.target_slot}`)}`;
-};
-
-export const getCandidateConnectionCount = (
-    targetNode: types.GraphNode,
-    property: types.PropertyDescriptor,
-    mode: types.SlotDirection,
-    candidate: types.CandidateDescriptor,
-): number => {
-    if (!targetNode.graph) {
-        return 0;
-    }
-
-    if (mode === "input") {
-        const link = getGraphLink(targetNode.graph, property.slot.link ?? null);
-        return link &&
-            link.origin_id === candidate.node.id &&
-            link.origin_slot === candidate.slotIndex
-            ? 1
-            : 0;
-    }
-
-    return (property.slot.links || []).reduce((count, linkId) => {
-        const link = getGraphLink(targetNode.graph, linkId);
-        return link &&
-            link.target_id === candidate.node.id &&
-            link.target_slot === candidate.slotIndex
-            ? count + 1
-            : count;
-    }, 0);
+    return `${getDisplayNameForRender(targetNode, renderCache)} -> ${getSlotDisplayName(targetSlot, `input ${link.target_slot}`)}`;
 };
 
 export const getPropertyConnectionCount = (
@@ -172,59 +251,31 @@ export const getConnectionPillText = (
 };
 
 export const collectInputCandidates = (
+    renderCache: PanelRenderCache,
     targetNode: types.GraphNode,
-    inputIndex: number,
     input: types.GraphSlot,
 ): types.CandidateDescriptor[] => {
-    return getGraphNodes(targetNode)
-        .filter((sourceNode) => sourceNode && sourceNode !== targetNode)
-        .flatMap((sourceNode) =>
-            (sourceNode.outputs || []).map((output, slotIndex) => ({
-                node: sourceNode,
-                nodeName: getNodeDisplayName(sourceNode),
-                slotIndex,
-                slotName: getSlotDisplayName(output, `output ${slotIndex}`),
-                typeName: getTypeDisplay(output?.type),
-                connect: () =>
-                    sourceNode.connect(slotIndex, targetNode, inputIndex),
-            })),
-        )
-        .filter((candidate) =>
-            candidate.node.canConnectTo(
-                targetNode,
-                input,
-                candidate.node.outputs?.[candidate.slotIndex] ?? {},
-            ),
-        )
-        .sort(compareCandidates);
+    return renderCache.inputCandidates.filter((candidate) =>
+        candidate.node.canConnectTo(
+            targetNode,
+            input,
+            candidate.node.outputs?.[candidate.slotIndex] ?? {},
+        ),
+    );
 };
 
 export const collectOutputCandidates = (
+    renderCache: PanelRenderCache,
     sourceNode: types.GraphNode,
-    outputIndex: number,
     output: types.GraphSlot,
 ): types.CandidateDescriptor[] => {
-    return getGraphNodes(sourceNode)
-        .filter((targetNode) => targetNode && targetNode !== sourceNode)
-        .flatMap((targetNode) =>
-            (targetNode.inputs || []).map((input, slotIndex) => ({
-                node: targetNode,
-                nodeName: getNodeDisplayName(targetNode),
-                slotIndex,
-                slotName: getSlotDisplayName(input, `input ${slotIndex}`),
-                typeName: getTypeDisplay(input?.type),
-                connect: () =>
-                    sourceNode.connect(outputIndex, targetNode, slotIndex),
-            })),
-        )
-        .filter((candidate) =>
-            sourceNode.canConnectTo(
-                candidate.node,
-                candidate.node.inputs?.[candidate.slotIndex] ?? {},
-                output,
-            ),
-        )
-        .sort(compareCandidates);
+    return renderCache.outputCandidates.filter((candidate) =>
+        sourceNode.canConnectTo(
+            candidate.node,
+            candidate.node.inputs?.[candidate.slotIndex] ?? {},
+            output,
+        ),
+    );
 };
 
 export const getNodeConnectionSignature = (

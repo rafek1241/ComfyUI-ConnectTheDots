@@ -1,15 +1,16 @@
 import html from "html-template-tag";
-
+import type { PanelRenderCache } from "./graphUtils";
 import {
     collectInputCandidates,
     collectOutputCandidates,
-    getCandidateConnectionCount,
+    createRenderCache,
+    getCachedNodeDisplayName,
+    getCachedTypeDisplay,
     getConnectedNodeLabel,
     getConnectionPillText,
-    getNodeDisplayName,
+    getGraphLink,
     getPropertyConnectionCount,
     getSlotDisplayName,
-    getTypeDisplay,
 } from "./graphUtils";
 import type * as types from "./types";
 
@@ -26,15 +27,50 @@ interface CandidateButtonOptions {
     property: types.PropertyDescriptor;
     mode: types.SlotDirection;
     candidate: types.CandidateDescriptor;
+    isConnected: boolean;
     callbacks: types.PanelViewCallbacks;
 }
 
+const getCandidateKey = (
+    nodeId: number | string,
+    slotIndex: number,
+): string => {
+    return `${nodeId}:${slotIndex}`;
+};
+
+const buildConnectedCandidateKeys = (
+    graph: types.GraphLike | null | undefined,
+    property: types.PropertyDescriptor,
+    mode: types.SlotDirection,
+): Set<string> => {
+    const keys = new Set<string>();
+    if (!graph) {
+        return keys;
+    }
+
+    if (mode === "input") {
+        const link = getGraphLink(graph, property.slot.link ?? null);
+        if (link) {
+            keys.add(getCandidateKey(link.origin_id, link.origin_slot));
+        }
+        return keys;
+    }
+
+    for (const linkId of property.slot.links || []) {
+        const link = getGraphLink(graph, linkId);
+        if (link) {
+            keys.add(getCandidateKey(link.target_id, link.target_slot));
+        }
+    }
+
+    return keys;
+};
+
 const buildCandidateRow = (label: string, value: string, tone = ""): string => {
-    const toneAttribute = tone ? html` data-tone="${tone}"` : "";
     return html`
         <span class="ctd-candidate-row">
             <span class="ctd-candidate-label">${label}</span>
-            <span class="ctd-candidate-value"${toneAttribute}>${value}</span>
+            <span class="ctd-candidate-value"${tone ? ` data-tone="${tone}"` : ""}>${value}</span>
         </span>
     `;
 };
@@ -45,6 +81,7 @@ const createCandidateButton = ({
     property,
     mode,
     candidate,
+    isConnected,
     callbacks,
 }: CandidateButtonOptions): HTMLDivElement => {
     const shell = document.createElement("div");
@@ -56,14 +93,6 @@ const createCandidateButton = ({
     const button = document.createElement("button");
     button.type = "button";
     button.className = "ctd-candidate";
-
-    const connectedCount = getCandidateConnectionCount(
-        targetNode,
-        property,
-        mode,
-        candidate,
-    );
-    const isConnected = connectedCount > 0;
     const nodeLabel = mode === "input" ? "Node" : "Target Node";
     const propertyLabel = mode === "input" ? "Property" : "Target Property";
 
@@ -106,15 +135,20 @@ const createPropertyCard = (
     targetNode: types.GraphNode,
     property: types.PropertyDescriptor,
     mode: types.SlotDirection,
+    renderCache: PanelRenderCache,
     callbacks: types.PanelViewCallbacks,
 ): HTMLDivElement => {
     const card = document.createElement("div");
     card.className = "ctd-slot-card";
 
-    const typeName = getTypeDisplay(property.slot.type);
     const stateLines: string[] = [];
     const candidateList = document.createElement("div");
     candidateList.className = "ctd-candidate-list";
+    const connectedCandidateKeys = buildConnectedCandidateKeys(
+        targetNode.graph,
+        property,
+        mode,
+    );
 
     const propertyConnectionCount = getPropertyConnectionCount(property, mode);
     const propertyPillText = getConnectionPillText(
@@ -125,19 +159,24 @@ const createPropertyCard = (
     let candidates: types.CandidateDescriptor[] = [];
     if (mode === "input") {
         candidates = collectInputCandidates(
+            renderCache,
             targetNode,
-            property.index,
             property.slot,
         );
     } else {
         candidates = collectOutputCandidates(
+            renderCache,
             targetNode,
-            property.index,
             property.slot,
         );
         const currentTargets = (property.slot.links || [])
             .map((linkId) =>
-                getConnectedNodeLabel(targetNode.graph, linkId, "output"),
+                getConnectedNodeLabel(
+                    targetNode.graph,
+                    linkId,
+                    "output",
+                    renderCache,
+                ),
             )
             .filter((label): label is string => Boolean(label));
 
@@ -153,11 +192,11 @@ const createPropertyCard = (
         <div class="ctd-slot-head">
             <span class="ctd-slot-name">${property.name}</span>
             <span class="ctd-slot-meta">
-                ${propertyPillText ? `<span class="ctd-connection-pill">${propertyPillText}</span>` : ""}
-                <span class="ctd-slot-type">${typeName}</span>
+                $${propertyPillText ? html`<span class="ctd-connection-pill">${propertyPillText}</span>` : ""}
+                <span class="ctd-slot-type">${getCachedTypeDisplay(renderCache, property.slot.type)}</span>
             </span>
         </div>
-        ${stateLines.length ? `<div class="ctd-slot-state">${stateLines.join(" ")}</div>` : ""}
+        $${stateLines.length ? html`<div class="ctd-slot-state">${stateLines.join(" ")}</div>` : ""}
     `;
 
     if (candidates.length) {
@@ -176,6 +215,9 @@ const createPropertyCard = (
                     property,
                     mode,
                     candidate,
+                    isConnected: connectedCandidateKeys.has(
+                        getCandidateKey(candidate.node.id, candidate.slotIndex),
+                    ),
                     callbacks,
                 }),
             );
@@ -199,6 +241,7 @@ const buildPropertyList = (
     targetNode: types.GraphNode,
     slots: types.PropertyDescriptor[],
     mode: types.SlotDirection,
+    renderCache: PanelRenderCache,
     callbacks: types.PanelViewCallbacks,
 ): HTMLDivElement => {
     const section = document.createElement("div");
@@ -230,7 +273,14 @@ const buildPropertyList = (
 
     for (const property of slots) {
         section.append(
-            createPropertyCard(panel, targetNode, property, mode, callbacks),
+            createPropertyCard(
+                panel,
+                targetNode,
+                property,
+                mode,
+                renderCache,
+                callbacks,
+            ),
         );
     }
 
@@ -244,6 +294,7 @@ export const renderPanelView = ({
     callbacks,
 }: RenderPanelOptions): void => {
     const previousScrollTop = panel.content?.scrollTop ?? 0;
+    const renderCache = createRenderCache(targetNode);
     const inputs = (targetNode.inputs || []).map((slot, index) => ({
         index,
         slot,
@@ -265,7 +316,7 @@ export const renderPanelView = ({
     const hero = document.createElement("div");
     hero.className = "ctd-hero";
     hero.innerHTML = html`
-        <div class="ctd-title">${getNodeDisplayName(targetNode)}</div>
+        <div class="ctd-title">${getCachedNodeDisplayName(renderCache, targetNode)}</div>
         <div class="ctd-subtitle">${targetNode.type || "unknown node type"}</div>
         <div class="ctd-help">
             Hover any candidate property to jump the canvas there.
@@ -285,10 +336,24 @@ export const renderPanelView = ({
     }
 
     shell.append(
-        buildPropertyList(panel, targetNode, inputs, "input", callbacks),
+        buildPropertyList(
+            panel,
+            targetNode,
+            inputs,
+            "input",
+            renderCache,
+            callbacks,
+        ),
     );
     shell.append(
-        buildPropertyList(panel, targetNode, outputs, "output", callbacks),
+        buildPropertyList(
+            panel,
+            targetNode,
+            outputs,
+            "output",
+            renderCache,
+            callbacks,
+        ),
     );
 
     panel.content.scrollTop = previousScrollTop;
