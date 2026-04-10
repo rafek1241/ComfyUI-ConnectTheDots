@@ -4,6 +4,7 @@ import styles from "./connectTheDots.css";
 import { getNodeConnectionSignature } from "./graphUtils";
 import { panelHostController } from "./panelHost";
 import { renderPanelView } from "./panelView";
+import { createConnectTheDotsSettingsController } from "./settings";
 import type * as types from "./types";
 
 const connectTheDotsExtension = (
@@ -15,9 +16,11 @@ const connectTheDotsExtension = (
     let currentPanel: types.PanelLike | null = null;
     let pendingSelectionClearTimeout: number | null = null;
     const panelHost = panelHostController();
+    const settings = createConnectTheDotsSettingsController(app);
     const canvasPreview = canvasPreviewController(
         () => app.canvas,
         () => app.graph,
+        settings,
     );
 
     const chainCanvasCallback = <TOwner, TArgs extends unknown[]>(
@@ -56,7 +59,9 @@ const connectTheDotsExtension = (
 
         const selectedNodes = Object.values(app.canvas?.selected_nodes || {});
         if (!selectedNodes.length) {
-            closePanel();
+            if (settings.get("closeSidebarOnEmptyCanvasClick")) {
+                closePanel();
+            }
             return;
         }
 
@@ -107,9 +112,54 @@ const connectTheDotsExtension = (
         canvas.__ctdSelectionChangeWrapped = true;
     };
 
+    const setupRepeatedTargetDeselect = (): void => {
+        const canvas = app.canvas;
+        if (
+            !canvas ||
+            canvas.__ctdProcessSelectWrapped ||
+            !canvas.processSelect
+        ) {
+            return;
+        }
+
+        const originalProcessSelect = canvas.processSelect.bind(canvas);
+        canvas.processSelect = (item, event, sticky) => {
+            const panel = currentPanel ?? panelHost.findMountedPanel();
+            const targetNode = panel?.node;
+            const shouldDeselectRepeatedTarget =
+                settings.get("deselectTargetOnRepeatedClick") &&
+                Boolean(
+                    item &&
+                        targetNode &&
+                        item === targetNode &&
+                        targetNode.selected &&
+                        !sticky &&
+                        !event?.shiftKey &&
+                        !event?.metaKey &&
+                        !event?.ctrlKey,
+                );
+
+            if (!shouldDeselectRepeatedTarget || !targetNode) {
+                originalProcessSelect(item, event, sticky);
+                return;
+            }
+
+            canvas.deselect?.(targetNode);
+            canvas.onSelectionChange?.(canvas.selected_nodes || {});
+            canvas.setDirty(true, true);
+
+            if (!Object.keys(canvas.selected_nodes || {}).length) {
+                closePanel();
+            }
+        };
+        canvas.__ctdProcessSelectWrapped = true;
+    };
+
     const setup = (): void => {
+        panelHost.ensureStyles(styles);
         canvasPreview.setupForegroundDrawing();
         setupSelectionChangeSync();
+        setupRepeatedTargetDeselect();
     };
 
     const getNodeMenuItems = (
@@ -336,6 +386,7 @@ const connectTheDotsExtension = (
     app.registerExtension({
         name: "jtreminio.connect-the-dots",
         getNodeMenuItems,
+        settings: settings.definitions,
         setup,
     });
 };

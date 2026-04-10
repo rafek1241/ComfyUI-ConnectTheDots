@@ -35,6 +35,7 @@ export interface GraphNode {
     id: number | string;
     title?: string;
     type?: string;
+    selected?: boolean;
     graph?: GraphLike | null;
     subgraph?: GraphLike | null;
     inputs?: GraphSlot[];
@@ -117,6 +118,25 @@ export interface PanelViewCallbacks {
     onCandidateSelect(selection: CandidateSelection): void;
 }
 
+export interface ExtensionSettingDefinition {
+    id: string;
+    name: string;
+    type: "boolean" | "text" | "number" | "slider" | "combo" | "color";
+    defaultValue: unknown;
+    tooltip?: string;
+    onChange?: (newValue: unknown, oldValue: unknown) => void;
+    attrs?: Record<string, unknown>;
+    options?: Array<string | { text: string; value: unknown }>;
+    sortOrder?: number;
+}
+
+export interface ExtensionManagerLike {
+    setting: {
+        get: <T = unknown>(id: string) => T | undefined;
+        set: <T = unknown>(id: string, value: T) => void | Promise<void>;
+    };
+}
+
 export interface CanvasDisplaySpace {
     offset: [number, number];
     scale: number;
@@ -143,6 +163,7 @@ export interface CanvasLike {
     graph?: GraphLike | null;
     canvas?: HTMLCanvasElement | null;
     ds?: CanvasDisplaySpace;
+    multi_select?: boolean;
     selected_nodes?: Record<number | string, GraphNode>;
     onDrawForeground?: (
         ctx: CanvasRenderingContext2D,
@@ -151,11 +172,20 @@ export interface CanvasLike {
     onSelectionChange?: (selected: Record<number | string, GraphNode>) => void;
     __ctdDrawWrapped?: boolean;
     __ctdSelectionChangeWrapped?: boolean;
+    __ctdProcessSelectWrapped?: boolean;
     setDirty(foreground?: boolean, background?: boolean): void;
     createPanel(title: string, options: { closable: boolean }): PanelLike;
     centerOnNode?(node: GraphNode): void;
     setGraph?(graph: GraphLike): void;
     openSubgraph?(graph: GraphLike): void;
+    processSelect?(
+        item: GraphNode | null | undefined,
+        event: MouseEvent | undefined,
+        sticky?: boolean,
+    ): void;
+    select?(item: GraphNode): void;
+    deselect?(item: GraphNode): void;
+    deselectAll?(keepSelected?: GraphNode): void;
 }
 
 export interface ContextMenuItem {
@@ -167,9 +197,11 @@ export interface ContextMenuItem {
 export interface AppLike {
     graph?: GraphLike | null;
     canvas?: CanvasLike;
+    extensionManager?: ExtensionManagerLike;
     registerExtension(extension: {
         name: string;
         getNodeMenuItems?: (node: GraphNode) => (ContextMenuItem | null)[];
+        settings?: ExtensionSettingDefinition[];
         setup?: () => void;
     }): void;
 }

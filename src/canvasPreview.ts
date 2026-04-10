@@ -1,3 +1,4 @@
+import type { ConnectTheDotsSettingsController } from "./settings";
 import type * as types from "./types";
 
 const getGraphNodes = (
@@ -105,6 +106,7 @@ const getPanelOcclusion = (
 export const canvasPreviewController = (
     getCanvas: () => types.CanvasLike | undefined,
     getRootGraph: () => types.GraphLike | null | undefined,
+    settings: ConnectTheDotsSettingsController,
 ) => {
     const PREVIEW_HORIZONTAL_RATIO = 0.5;
     const PREVIEW_VERTICAL_RATIO = 0.25;
@@ -125,6 +127,20 @@ export const canvasPreviewController = (
     let previewFocusTimeout: number | null = null;
     let previewAnimationFrame: number | null = null;
     let previewConfirmationExpiresAt = 0;
+
+    const syncPreviewAnimationState = (): void => {
+        const previewSettings = settings.getAll();
+        if (
+            previewLink &&
+            previewSettings.showPreviewLinkOnHover &&
+            previewSettings.animatePreviewLink
+        ) {
+            startPreviewAnimation();
+            return;
+        }
+
+        stopPreviewAnimation();
+    };
 
     const setupForegroundDrawing = (): void => {
         const canvas = getCanvas();
@@ -173,7 +189,12 @@ export const canvasPreviewController = (
         }
 
         const tick = (): void => {
-            if (!previewLink) {
+            const previewSettings = settings.getAll();
+            if (
+                !previewLink ||
+                !previewSettings.showPreviewLinkOnHover ||
+                !previewSettings.animatePreviewLink
+            ) {
                 previewAnimationFrame = null;
                 return;
             }
@@ -606,8 +627,12 @@ export const canvasPreviewController = (
         selection: types.CandidateSelection,
     ): void => {
         beginCandidatePreview(selection);
-        previewConfirmationExpiresAt =
-            performance.now() + CONNECTION_FLASH_DURATION_MS;
+        if (settings.get("glowPreviewLinkOnChange")) {
+            previewConfirmationExpiresAt =
+                performance.now() + CONNECTION_FLASH_DURATION_MS;
+        } else {
+            clearPreviewConfirmation();
+        }
         getCanvas()?.setDirty(true, true);
     };
 
@@ -642,11 +667,7 @@ export const canvasPreviewController = (
         }
 
         previewLink = link;
-        if (previewLink) {
-            startPreviewAnimation();
-        } else {
-            stopPreviewAnimation();
-        }
+        syncPreviewAnimationState();
         getCanvas()?.setDirty(true, true);
     };
 
@@ -689,8 +710,10 @@ export const canvasPreviewController = (
         canvas: types.CanvasLike,
         link: types.PreviewLinkDescriptor | null,
     ): void => {
+        const previewSettings = settings.getAll();
         if (
             !link ||
+            !previewSettings.showPreviewLinkOnHover ||
             !canvas.ds ||
             link.originNode.graph !== canvas.graph ||
             link.targetNode.graph !== canvas.graph
@@ -710,6 +733,7 @@ export const canvasPreviewController = (
         const endpointRadius = 5.5 / scale;
         const animationTime = performance.now() / 1000;
         const isConfirmationActive =
+            previewSettings.glowPreviewLinkOnChange &&
             previewConfirmationExpiresAt > performance.now();
 
         ctx.save();
@@ -750,14 +774,21 @@ export const canvasPreviewController = (
         ctx.lineWidth = haloWidth;
         ctx.stroke();
 
-        drawAnimatedPreviewDashes(
-            ctx,
-            origin,
-            target,
-            controlOffset,
-            animationTime,
-            lineWidth,
-        );
+        if (previewSettings.animatePreviewLink) {
+            drawAnimatedPreviewDashes(
+                ctx,
+                origin,
+                target,
+                controlOffset,
+                animationTime,
+                lineWidth,
+            );
+        } else {
+            tracePreviewLinkPath(ctx, origin, target, controlOffset);
+            ctx.strokeStyle = "rgba(123, 201, 111, 0.96)";
+            ctx.lineWidth = lineWidth;
+            ctx.stroke();
+        }
 
         drawPreviewEndpoint(
             ctx,
@@ -961,6 +992,14 @@ export const canvasPreviewController = (
         metrics.ds.offset[1] = -bounds.y + targetTopY;
         return true;
     };
+
+    settings.subscribe((previewSettings) => {
+        if (!previewSettings.glowPreviewLinkOnChange) {
+            clearPreviewConfirmation();
+        }
+        syncPreviewAnimationState();
+        getCanvas()?.setDirty(true, true);
+    });
 
     return {
         setupForegroundDrawing,
