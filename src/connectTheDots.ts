@@ -581,6 +581,26 @@ class ConnectTheDotsExtension {
         panel.__ctdStatus = message ? { message, state } : null;
     }
 
+    private getGraphCanvasContainer(): HTMLElement | null {
+        const container = document.getElementById("graph-canvas-container");
+        return container instanceof HTMLElement ? container : null;
+    }
+
+    private getPanelHost(): HTMLElement | null {
+        const graphCanvasContainer = this.getGraphCanvasContainer();
+        const graphCanvasPanel = graphCanvasContainer?.querySelector<HTMLElement>(".graph-canvas-panel");
+        if (graphCanvasPanel) {
+            return graphCanvasPanel;
+        }
+
+        if (graphCanvasContainer) {
+            return graphCanvasContainer;
+        }
+
+        const host = comfyApp.canvas?.canvas?.parentElement;
+        return host instanceof HTMLElement ? host : null;
+    }
+
     private buildCandidateRow(label: string, value: string, tone = ""): string {
         const toneAttribute = tone ? ` data-tone="${this.escapeHtml(tone)}"` : "";
         return `
@@ -832,7 +852,7 @@ class ConnectTheDotsExtension {
         this.renderPanel(panel, targetNode);
         this.startPanelConnectionWatcher(panel, targetNode);
 
-        canvas.canvas?.parentNode?.append(panel);
+        this.getPanelHost()?.append(panel);
     }
 }
 
