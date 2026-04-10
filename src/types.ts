@@ -119,7 +119,7 @@ export interface PanelLike extends HTMLElement {
     onClose?: () => void;
     __ctdBaseView?: CanvasView | null;
     __ctdStatus?: PanelStatus | null;
-    __ctdConnectionWatcher?: number | null;
+    __ctdGraphChangedHandler?: EventListener | null;
     __ctdConnectionSignature?: string;
     __ctdHostObserver?: ResizeObserver | null;
 }
@@ -154,4 +154,17 @@ export interface AppLike {
         getNodeMenuItems?: (node: GraphNode) => (ContextMenuItem | null)[];
         setup?: () => void;
     }): void;
+}
+
+export interface ApiLike {
+    addEventListener(
+        type: "graphChanged",
+        listener: EventListener | null,
+        options?: boolean | AddEventListenerOptions,
+    ): void;
+    removeEventListener(
+        type: "graphChanged",
+        listener: EventListener | null,
+        options?: boolean | EventListenerOptions,
+    ): void;
 }

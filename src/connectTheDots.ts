@@ -1,21 +1,20 @@
 import { canvasPreviewController } from "./canvasPreview";
-import { app } from "./comfyApp";
+import { api, app } from "./comfy";
 import styles from "./connectTheDots.css";
 import { getNodeConnectionSignature } from "./graphUtils";
 import { panelHostController } from "./panelHost";
 import { renderPanelView } from "./panelView";
 import type * as types from "./types";
 
-const connectTheDotsExtension = (comfy: types.AppLike) => {
+const connectTheDotsExtension = (api: types.ApiLike, app: types.AppLike) => {
     const EXTENSION_NAME = "connect-the-dots";
     const MENU_LABEL = "Connect The Dots";
-    const CONNECTION_WATCH_INTERVAL_MS = 150;
 
     let currentPanel: types.PanelLike | null = null;
     const panelHost = panelHostController();
     const canvasPreview = canvasPreviewController(
-        () => comfy.canvas,
-        () => comfy.graph,
+        () => app.canvas,
+        () => app.graph,
     );
 
     const setup = (): void => canvasPreview.setupForegroundDrawing();
@@ -108,31 +107,32 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
         renderPanel(panel, targetNode);
     };
 
-    const stopPanelConnectionWatcher = (
+    const stopPanelGraphChangeListener = (
         panel: types.PanelLike | null,
     ): void => {
-        if (!panel?.__ctdConnectionWatcher) {
+        if (!panel?.__ctdGraphChangedHandler) {
             return;
         }
 
-        window.clearInterval(panel.__ctdConnectionWatcher);
-        panel.__ctdConnectionWatcher = null;
+        api.removeEventListener("graphChanged", panel.__ctdGraphChangedHandler);
+        panel.__ctdGraphChangedHandler = null;
     };
 
-    const startPanelConnectionWatcher = (
+    const startPanelGraphChangeListener = (
         panel: types.PanelLike,
         targetNode: types.GraphNode,
     ): void => {
-        stopPanelConnectionWatcher(panel);
+        stopPanelGraphChangeListener(panel);
         panel.__ctdConnectionSignature = getNodeConnectionSignature(targetNode);
-        panel.__ctdConnectionWatcher = window.setInterval(() => {
+
+        const handleGraphChanged = (): void => {
             if (currentPanel !== panel || panel.node !== targetNode) {
-                stopPanelConnectionWatcher(panel);
+                stopPanelGraphChangeListener(panel);
                 return;
             }
 
             if (!document.body.contains(panel)) {
-                stopPanelConnectionWatcher(panel);
+                stopPanelGraphChangeListener(panel);
                 return;
             }
 
@@ -143,7 +143,10 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
 
             canvasPreview.endCandidatePreview(panel);
             renderPanel(panel, targetNode);
-        }, CONNECTION_WATCH_INTERVAL_MS);
+        };
+
+        panel.__ctdGraphChangedHandler = handleGraphChanged;
+        api.addEventListener("graphChanged", handleGraphChanged);
     };
 
     const closePanel = (): void => {
@@ -152,12 +155,12 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
             return;
         }
 
-        stopPanelConnectionWatcher(panel);
+        stopPanelGraphChangeListener(panel);
         panelHost.close(panel);
     };
 
     const showPanel = (targetNode: types.GraphNode): void => {
-        const canvas = comfy.canvas;
+        const canvas = app.canvas;
         if (!targetNode || !canvas) {
             return;
         }
@@ -174,7 +177,7 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
         panel.graph = canvas.graph;
 
         panel.onClose = () => {
-            stopPanelConnectionWatcher(panel);
+            stopPanelGraphChangeListener(panel);
             panelHost.disconnect(panel);
             canvasPreview.endCandidatePreview(panel);
             canvasPreview.setSidebarTargetNode(null);
@@ -192,11 +195,11 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
         }
 
         currentPanel = panel;
-        startPanelConnectionWatcher(panel, targetNode);
+        startPanelGraphChangeListener(panel, targetNode);
     };
 
     const register = (): void => {
-        comfy.registerExtension({
+        app.registerExtension({
             name: `jtreminio.${EXTENSION_NAME}`,
             getNodeMenuItems,
             setup,
@@ -208,4 +211,4 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
     };
 };
 
-connectTheDotsExtension(app).register();
+connectTheDotsExtension(api, app).register();
