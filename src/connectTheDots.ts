@@ -13,6 +13,7 @@ const connectTheDotsExtension = (
     const MENU_LABEL = "Connect The Dots";
 
     let currentPanel: types.PanelLike | null = null;
+    let pendingSelectionClearTimeout: number | null = null;
     const panelHost = panelHostController();
     const canvasPreview = canvasPreviewController(
         () => app.canvas,
@@ -38,12 +39,53 @@ const connectTheDotsExtension = (
         return selectedNodes.length === 1 ? selectedNodes[0] : null;
     };
 
-    const handleSelectionChange = (): void => {
+    const clearPendingSelectionClose = (): void => {
+        if (pendingSelectionClearTimeout == null) {
+            return;
+        }
+
+        window.clearTimeout(pendingSelectionClearTimeout);
+        pendingSelectionClearTimeout = null;
+    };
+
+    const syncPanelToSettledSelection = (): void => {
         const panel = currentPanel ?? panelHost.findMountedPanel();
         if (!panel || !document.body.contains(panel)) {
             return;
         }
 
+        const selectedNodes = Object.values(app.canvas?.selected_nodes || {});
+        if (!selectedNodes.length) {
+            closePanel();
+            return;
+        }
+
+        const nextNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
+        if (!nextNode || panel.node === nextNode) {
+            return;
+        }
+
+        showPanel(nextNode);
+    };
+
+    const handleSelectionChange = (): void => {
+        const panel = currentPanel ?? panelHost.findMountedPanel();
+        if (!panel || !document.body.contains(panel)) {
+            clearPendingSelectionClose();
+            return;
+        }
+
+        const selectedNodes = Object.values(app.canvas?.selected_nodes || {});
+        if (!selectedNodes.length) {
+            clearPendingSelectionClose();
+            pendingSelectionClearTimeout = window.setTimeout(() => {
+                pendingSelectionClearTimeout = null;
+                syncPanelToSettledSelection();
+            }, 0);
+            return;
+        }
+
+        clearPendingSelectionClose();
         const nextNode = getSingleSelectedNode(app.canvas);
         if (!nextNode || panel.node === nextNode) {
             return;
@@ -241,6 +283,7 @@ const connectTheDotsExtension = (
     };
 
     const closePanel = (): void => {
+        clearPendingSelectionClose();
         const panel = currentPanel ?? panelHost.findMountedPanel();
         if (!panel) {
             return;
@@ -256,6 +299,7 @@ const connectTheDotsExtension = (
             return;
         }
 
+        clearPendingSelectionClose();
         panelHost.ensureStyles(styles);
         canvasPreview.endCandidatePreview(
             currentPanel ?? panelHost.findMountedPanel(),
