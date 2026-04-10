@@ -6,7 +6,7 @@ ComfyUI-ConnectTheDots adds a simple sidebar to ComfyUI so you can find and conn
 
 ## Demo
 
-https://github.com/user-attachments/assets/b2e35306-de46-444f-9e60-929e059fb4ef
+https://github.com/user-attachments/assets/c8bfcca4-9a4a-4346-a8a9-90bdf816b654
 
 ## Why Use It
 
