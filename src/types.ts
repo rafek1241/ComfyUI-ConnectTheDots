@@ -36,6 +36,7 @@ export interface GraphNode {
     title?: string;
     type?: string;
     graph?: GraphLike | null;
+    subgraph?: GraphLike | null;
     inputs?: GraphSlot[];
     outputs?: GraphSlot[];
     pos?: [number, number];
@@ -136,6 +137,7 @@ export interface CanvasLike {
     createPanel(title: string, options: { closable: boolean }): PanelLike;
     centerOnNode?(node: GraphNode): void;
     setGraph?(graph: GraphLike): void;
+    openSubgraph?(graph: GraphLike): void;
 }
 
 export interface ContextMenuItem {
@@ -145,6 +147,7 @@ export interface ContextMenuItem {
 }
 
 export interface AppLike {
+    graph?: GraphLike | null;
     canvas?: CanvasLike;
     registerExtension(extension: {
         name: string;

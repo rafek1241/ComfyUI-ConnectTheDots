@@ -1,13 +1,21 @@
 import type * as types from "./types";
 
+const getGraphNodes = (
+    graph: types.GraphLike | null | undefined,
+): types.GraphNode[] => {
+    return graph?.nodes || graph?._nodes || [];
+};
+
 export const canvasPreviewController = (
     getCanvas: () => types.CanvasLike | undefined,
+    getRootGraph: () => types.GraphLike | null | undefined,
 ) => {
     const PREVIEW_HORIZONTAL_RATIO = 0.5;
     const PREVIEW_VERTICAL_RATIO = 0.25;
 
     let previewNode: types.GraphNode | null = null;
     let sidebarTargetNode: types.GraphNode | null = null;
+    let previewFocusTimeout: number | null = null;
 
     const setupForegroundDrawing = (): void => {
         const canvas = getCanvas();
@@ -23,6 +31,15 @@ export const canvasPreviewController = (
         canvas.__ctdDrawWrapped = true;
     };
 
+    const clearPendingPreviewFocus = (): void => {
+        if (previewFocusTimeout == null) {
+            return;
+        }
+
+        window.clearTimeout(previewFocusTimeout);
+        previewFocusTimeout = null;
+    };
+
     const captureCanvasView = (): types.CanvasView => {
         const canvas = getCanvas();
         const offset = canvas?.ds?.offset || [0, 0];
@@ -33,6 +50,69 @@ export const canvasPreviewController = (
         };
     };
 
+    const findGraphPath = (
+        targetGraph: types.GraphLike | null | undefined,
+        currentGraph = getRootGraph(),
+        path: types.GraphLike[] = currentGraph ? [currentGraph] : [],
+    ): types.GraphLike[] | null => {
+        if (!targetGraph || !currentGraph) {
+            return null;
+        }
+
+        if (currentGraph === targetGraph) {
+            return path;
+        }
+
+        for (const node of getGraphNodes(currentGraph)) {
+            const subgraph = node.subgraph;
+            if (!subgraph) {
+                continue;
+            }
+
+            const nextPath = findGraphPath(targetGraph, subgraph, [
+                ...path,
+                subgraph,
+            ]);
+            if (nextPath) {
+                return nextPath;
+            }
+        }
+
+        return null;
+    };
+
+    const setCanvasGraph = (
+        graph: types.GraphLike | null | undefined,
+    ): boolean => {
+        const canvas = getCanvas();
+        if (!canvas || !graph) {
+            return false;
+        }
+
+        if (canvas.graph === graph) {
+            return true;
+        }
+
+        const rootGraph = getRootGraph();
+        if (!rootGraph) {
+            canvas.setGraph?.(graph);
+            return canvas.graph === graph;
+        }
+
+        const path = findGraphPath(graph, rootGraph);
+        if (!path) {
+            canvas.setGraph?.(graph);
+            return canvas.graph === graph;
+        }
+
+        canvas.setGraph?.(rootGraph);
+        for (let index = 1; index < path.length; index += 1) {
+            canvas.openSubgraph?.(path[index]);
+        }
+
+        return canvas.graph === graph || Boolean(canvas.openSubgraph);
+    };
+
     const restoreCanvasView = (
         view: types.CanvasView | null | undefined,
     ): void => {
@@ -41,14 +121,66 @@ export const canvasPreviewController = (
             return;
         }
 
-        if (view.graph && canvas.graph !== view.graph) {
-            canvas.setGraph?.(view.graph);
+        clearPendingPreviewFocus();
+        if (
+            view.graph &&
+            canvas.graph !== view.graph &&
+            !setCanvasGraph(view.graph)
+        ) {
+            return;
         }
 
         canvas.ds.offset[0] = view.offset[0];
         canvas.ds.offset[1] = view.offset[1];
         canvas.ds.scale = view.scale;
         canvas.setDirty(true, true);
+    };
+
+    const centerOnNodeAtScale = (
+        node: types.GraphNode,
+        scale: number,
+    ): void => {
+        const canvas = getCanvas();
+        if (!canvas) {
+            return;
+        }
+
+        if (canvas.ds) {
+            canvas.ds.scale = scale;
+        }
+
+        if (canvas.centerOnNode) {
+            canvas.centerOnNode(node);
+            return;
+        }
+
+        focusNodeAtScale(node, scale);
+    };
+
+    const queueCandidateFocus = (
+        candidateNode: types.GraphNode,
+        scale: number,
+    ): void => {
+        clearPendingPreviewFocus();
+        previewFocusTimeout = window.setTimeout(() => {
+            previewFocusTimeout = null;
+
+            const canvas = getCanvas();
+            if (!canvas || previewNode !== candidateNode) {
+                return;
+            }
+
+            if (canvas.graph !== candidateNode.graph) {
+                setCanvasGraph(candidateNode.graph);
+            }
+
+            if (canvas.graph !== candidateNode.graph) {
+                return;
+            }
+
+            centerOnNodeAtScale(candidateNode, scale);
+            canvas.setDirty(true, true);
+        }, 0);
     };
 
     const beginCandidatePreview = (
@@ -64,16 +196,21 @@ export const canvasPreviewController = (
             panel.__ctdBaseView = captureCanvasView();
         }
 
-        if (canvas.graph !== candidateNode.graph) {
+        const hasGraphChanged = canvas.graph !== candidateNode.graph;
+        if (hasGraphChanged && !setCanvasGraph(candidateNode.graph)) {
             return;
         }
 
         setPreviewNode(candidateNode);
         const previewScale =
             panel.__ctdBaseView?.scale ?? canvas.ds?.scale ?? 1;
-        if (!focusNodeAtScale(candidateNode, previewScale)) {
-            canvas.centerOnNode?.(candidateNode);
+        if (hasGraphChanged) {
+            queueCandidateFocus(candidateNode, previewScale);
+            return;
         }
+
+        clearPendingPreviewFocus();
+        centerOnNodeAtScale(candidateNode, previewScale);
         canvas.setDirty(true, true);
     };
 
@@ -82,6 +219,7 @@ export const canvasPreviewController = (
             return;
         }
 
+        clearPendingPreviewFocus();
         setPreviewNode(null);
         if (panel.__ctdBaseView) {
             restoreCanvasView(panel.__ctdBaseView);

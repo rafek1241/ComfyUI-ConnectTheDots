@@ -13,7 +13,10 @@ const connectTheDotsExtension = (comfy: types.AppLike) => {
 
     let currentPanel: types.PanelLike | null = null;
     const panelHost = panelHostController();
-    const canvasPreview = canvasPreviewController(() => comfy.canvas);
+    const canvasPreview = canvasPreviewController(
+        () => comfy.canvas,
+        () => comfy.graph,
+    );
 
     const setup = (): void => canvasPreview.setupForegroundDrawing();
 
