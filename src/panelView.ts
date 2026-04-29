@@ -439,7 +439,7 @@ export const renderPanelView = ({
     const searchInput = document.createElement("input");
     searchInput.type = "search";
     searchInput.className = "ctd-search";
-    searchInput.placeholder = "Search inputs \u0026 outputs\u2026";
+    searchInput.placeholder = "Search inputs & outputs\u2026";
     searchInput.setAttribute("aria-label", "Search inputs and outputs");
     searchWrap.append(searchInput);
     shell.append(searchWrap);

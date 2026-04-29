@@ -114,14 +114,6 @@
     color: var(--ctd-text-subtle);
 }
 
-#connect-the-dots-panel .ctd-slot-card-old-placeholder {
-    /* replaced by appended rules */
-}
-
-#connect-the-dots-panel .ctd-slot-head-old-placeholder {
-    /* replaced by appended rules */
-}
-
 #connect-the-dots-panel .ctd-slot-meta {
     display: flex;
     align-items: center;
