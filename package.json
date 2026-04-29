@@ -17,12 +17,18 @@
         "format:check": "biome format .",
         "lint": "biome lint .",
         "lint:fix": "biome lint --write .",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
         "typecheck": "tsc --noEmit"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.4.11",
+        "@vitest/coverage-v8": "^3.2.3",
         "esbuild": "^0.28.0",
         "html-template-tag": "^5.0.0",
-        "typescript": "^6.0.2"
+        "jsdom": "^26.1.0",
+        "typescript": "^6.0.2",
+        "vitest": "^3.2.3"
     }
 }

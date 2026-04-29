@@ -114,18 +114,12 @@
     color: var(--ctd-text-subtle);
 }
 
-#connect-the-dots-panel .ctd-slot-card {
-    border: 1px solid var(--ctd-border);
-    border-radius: 10px;
-    background: var(--ctd-surface);
-    padding: 10px;
+#connect-the-dots-panel .ctd-slot-card-old-placeholder {
+    /* replaced by appended rules */
 }
 
-#connect-the-dots-panel .ctd-slot-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
+#connect-the-dots-panel .ctd-slot-head-old-placeholder {
+    /* replaced by appended rules */
 }
 
 #connect-the-dots-panel .ctd-slot-meta {
@@ -273,4 +267,139 @@
     height: 1px;
     background: var(--ctd-border);
     margin: 2px 0;
+}
+
+/* ── Search box ─────────────────────────────────────────── */
+
+#connect-the-dots-panel .ctd-search-wrap {
+    position: relative;
+}
+
+#connect-the-dots-panel .ctd-search {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    border: 1px solid var(--ctd-border);
+    border-radius: 8px;
+    background: var(--ctd-surface);
+    color: var(--ctd-text);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.35;
+    outline: none;
+    appearance: none;
+}
+
+#connect-the-dots-panel .ctd-search:focus {
+    border-color: var(--ctd-accent-border);
+}
+
+#connect-the-dots-panel .ctd-search::placeholder {
+    color: var(--ctd-text-subtle);
+}
+
+/* ── Slot card collapse / expand ────────────────────────── */
+
+#connect-the-dots-panel .ctd-slot-card {
+    border: 1px solid var(--ctd-border);
+    border-radius: 10px;
+    background: var(--ctd-surface);
+    padding: 0;
+    overflow: hidden;
+}
+
+#connect-the-dots-panel .ctd-slot-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: default;
+}
+
+#connect-the-dots-panel .ctd-slot-toggle {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 0;
+    color: var(--ctd-text-subtle);
+    border-radius: 4px;
+}
+
+#connect-the-dots-panel .ctd-slot-toggle:hover {
+    color: var(--ctd-text);
+    background: color-mix(in srgb, var(--ctd-border) 40%, transparent 60%);
+}
+
+#connect-the-dots-panel .ctd-slot-chevron {
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+    margin-top: -2px;
+}
+
+#connect-the-dots-panel
+    .ctd-slot-card[data-collapsed="false"]
+    .ctd-slot-chevron {
+    transform: rotate(-135deg);
+    margin-top: 2px;
+}
+
+#connect-the-dots-panel .ctd-slot-body {
+    display: none;
+    padding: 0 10px 10px;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#connect-the-dots-panel .ctd-slot-card[data-collapsed="false"] .ctd-slot-body {
+    display: flex;
+}
+
+/* ── Copy / paste actions ───────────────────────────────── */
+
+#connect-the-dots-panel .ctd-slot-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+#connect-the-dots-panel .ctd-action-btn {
+    border: 1px solid var(--ctd-border);
+    border-radius: 6px;
+    background: var(--ctd-surface);
+    color: var(--ctd-text-muted);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    cursor: pointer;
+    appearance: none;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+#connect-the-dots-panel .ctd-action-btn:hover {
+    border-color: var(--ctd-accent-border);
+    color: var(--ctd-text);
+    background: var(--ctd-accent-bg);
+}
+
+#connect-the-dots-panel .ctd-action-btn--paste {
+    border-color: var(--ctd-accent-border);
+    background: var(--ctd-accent-bg);
+    color: var(--ctd-text);
+}
+
+#connect-the-dots-panel .ctd-action-btn--paste:hover {
+    filter: brightness(1.1);
 }

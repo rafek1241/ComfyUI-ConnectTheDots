@@ -112,10 +112,25 @@ export interface PreviewLinkDescriptor {
     targetSlot: number;
 }
 
+export interface LinkClipboard {
+    mode: SlotDirection;
+    originNodeId: number | string;
+    originSlot: number;
+    originTypeName: string;
+}
+
 export interface PanelViewCallbacks {
     onCandidatePreviewStart(selection: CandidateSelection): void;
     onCandidatePreviewEnd(panel: PanelLike | null): void;
     onCandidateSelect(selection: CandidateSelection): void;
+    onCopyLink(property: PropertyDescriptor, mode: SlotDirection): void;
+    onPasteLink(
+        panel: PanelLike,
+        targetNode: GraphNode,
+        property: PropertyDescriptor,
+        mode: SlotDirection,
+    ): void;
+    getLinkClipboard(): LinkClipboard | null;
 }
 
 export interface ExtensionSettingDefinition {

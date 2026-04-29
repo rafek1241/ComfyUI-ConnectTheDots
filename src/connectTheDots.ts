@@ -1,7 +1,12 @@
 import { canvasPreviewController } from "./canvasPreview";
 import { api, app } from "./comfy";
 import styles from "./connectTheDots.css";
-import { getNodeConnectionSignature } from "./graphUtils";
+import {
+    getCachedTypeDisplay,
+    createRenderCache,
+    getGraphLink,
+    getNodeConnectionSignature,
+} from "./graphUtils";
 import { panelHostController } from "./panelHost";
 import { renderPanelView } from "./panelView";
 import { createConnectTheDotsSettingsController } from "./settings";
@@ -15,6 +20,7 @@ const connectTheDotsExtension = (
 
     let currentPanel: types.PanelLike | null = null;
     let pendingSelectionClearTimeout: number | null = null;
+    let linkClipboard: types.LinkClipboard | null = null;
     const panelHost = panelHostController();
     const settings = createConnectTheDotsSettingsController(app);
     const canvasPreview = canvasPreviewController(
@@ -200,6 +206,129 @@ const connectTheDotsExtension = (
         panel.__ctdConnectionFlashTimeout = null;
     };
 
+    const handleCopyLink = (
+        panel: types.PanelLike,
+        targetNode: types.GraphNode,
+        property: types.PropertyDescriptor,
+        mode: types.SlotDirection,
+    ): void => {
+        const graph = targetNode.graph;
+        if (!graph) {
+            return;
+        }
+
+        if (mode === "input") {
+            const link = getGraphLink(graph, property.slot.link ?? null);
+            if (!link) {
+                return;
+            }
+            const renderCache = createRenderCache(targetNode);
+            const originNode = graph.getNodeById?.(link.origin_id);
+            const originSlot = originNode?.outputs?.[link.origin_slot];
+            linkClipboard = {
+                mode: "input",
+                originNodeId: link.origin_id,
+                originSlot: link.origin_slot,
+                originTypeName: getCachedTypeDisplay(
+                    renderCache,
+                    originSlot?.type,
+                ),
+            };
+        } else {
+            const linkIds = property.slot.links ?? [];
+            if (!linkIds.length) {
+                return;
+            }
+            const link = getGraphLink(graph, linkIds[0]);
+            if (!link) {
+                return;
+            }
+            const renderCache = createRenderCache(targetNode);
+            const targetSlot = targetNode.outputs?.[property.index];
+            linkClipboard = {
+                mode: "output",
+                originNodeId: targetNode.id,
+                originSlot: property.index,
+                originTypeName: getCachedTypeDisplay(
+                    renderCache,
+                    targetSlot?.type,
+                ),
+            };
+        }
+
+        setPanelStatus(panel, "Link copied to clipboard.");
+        renderPanel(panel, targetNode);
+    };
+
+    const handlePasteLink = (
+        panel: types.PanelLike,
+        targetNode: types.GraphNode,
+        property: types.PropertyDescriptor,
+        mode: types.SlotDirection,
+    ): void => {
+        if (!linkClipboard || linkClipboard.mode !== mode) {
+            return;
+        }
+
+        const graph = targetNode.graph;
+        if (!graph) {
+            return;
+        }
+
+        clearPanelConnectionFlash(panel);
+
+        if (mode === "input") {
+            const originNode = graph.getNodeById?.(linkClipboard.originNodeId);
+            if (!originNode) {
+                setPanelStatus(panel, "Source node not found.", "error");
+                renderPanel(panel, targetNode);
+                return;
+            }
+
+            const link = originNode.connect(
+                linkClipboard.originSlot,
+                targetNode,
+                property.index,
+            );
+
+            if (!link) {
+                setPanelStatus(
+                    panel,
+                    "ComfyUI rejected the pasted connection.",
+                    "error",
+                );
+                renderPanel(panel, targetNode);
+                return;
+            }
+        } else {
+            const originNode = graph.getNodeById?.(linkClipboard.originNodeId);
+            if (!originNode) {
+                setPanelStatus(panel, "Source node not found.", "error");
+                renderPanel(panel, targetNode);
+                return;
+            }
+
+            const link = targetNode.connect(
+                property.index,
+                originNode,
+                linkClipboard.originSlot,
+            );
+
+            if (!link) {
+                setPanelStatus(
+                    panel,
+                    "ComfyUI rejected the pasted connection.",
+                    "error",
+                );
+                renderPanel(panel, targetNode);
+                return;
+            }
+        }
+
+        setPanelStatus(panel, null);
+        renderPanel(panel, targetNode);
+    };
+
     const renderPanel = (
         panel: types.PanelLike,
         targetNode: types.GraphNode,
@@ -215,6 +344,11 @@ const connectTheDotsExtension = (
                     canvasPreview.endCandidatePreview(nextPanel),
                 onCandidateSelect: (selection) =>
                     handleCandidateSelect(selection),
+                onCopyLink: (property, mode) =>
+                    handleCopyLink(panel, targetNode, property, mode),
+                onPasteLink: (p, node, property, mode) =>
+                    handlePasteLink(p, node, property, mode),
+                getLinkClipboard: () => linkClipboard,
             },
         });
 

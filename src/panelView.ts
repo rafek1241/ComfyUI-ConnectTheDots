@@ -128,6 +128,20 @@ const createCandidateButton = ({
     return shell;
 };
 
+const canPasteLink = (
+    property: types.PropertyDescriptor,
+    mode: types.SlotDirection,
+    clipboard: types.LinkClipboard | null,
+): boolean => {
+    if (!clipboard || clipboard.mode !== mode) {
+        return false;
+    }
+    if (mode === "input") {
+        return property.slot.link == null;
+    }
+    return true;
+};
+
 const createPropertyCard = (
     panel: types.PanelLike,
     targetNode: types.GraphNode,
@@ -138,6 +152,8 @@ const createPropertyCard = (
 ): HTMLDivElement => {
     const card = document.createElement("div");
     card.className = "ctd-slot-card";
+    card.dataset.collapsed = "true";
+    card.dataset.slotName = property.name.toLowerCase();
     card.addEventListener("mouseleave", () =>
         callbacks.onCandidatePreviewEnd(panel),
     );
@@ -189,16 +205,74 @@ const createPropertyCard = (
         );
     }
 
-    card.innerHTML = html`
-        <div class="ctd-slot-head">
-            <span class="ctd-slot-name">${property.name}</span>
-            <span class="ctd-slot-meta">
-                $${propertyPillText ? html`<span class="ctd-connection-pill">${propertyPillText}</span>` : ""}
-                <span class="ctd-slot-type">${getCachedTypeDisplay(renderCache, property.slot.type)}</span>
-            </span>
-        </div>
-        $${stateLines.length ? html`<div class="ctd-slot-state">${stateLines.join(" ")}</div>` : ""}
+    // Build head section
+    const head = document.createElement("div");
+    head.className = "ctd-slot-head";
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.type = "button";
+    toggleBtn.className = "ctd-slot-toggle";
+    toggleBtn.setAttribute("aria-label", "Toggle section");
+    toggleBtn.innerHTML = `<span class="ctd-slot-chevron" aria-hidden="true"></span>`;
+
+    const slotName = document.createElement("span");
+    slotName.className = "ctd-slot-name";
+    slotName.textContent = property.name;
+
+    const slotMeta = document.createElement("span");
+    slotMeta.className = "ctd-slot-meta";
+    slotMeta.innerHTML = html`
+        $${propertyPillText ? html`<span class="ctd-connection-pill">${propertyPillText}</span>` : ""}
+        <span class="ctd-slot-type">${getCachedTypeDisplay(renderCache, property.slot.type)}</span>
     `;
+
+    head.append(toggleBtn, slotName, slotMeta);
+
+    // Build collapsible body
+    const body = document.createElement("div");
+    body.className = "ctd-slot-body";
+
+    if (stateLines.length) {
+        const stateEl = document.createElement("div");
+        stateEl.className = "ctd-slot-state";
+        stateEl.textContent = stateLines.join(" ");
+        body.append(stateEl);
+    }
+
+    // Copy / paste action row
+    const clipboard = callbacks.getLinkClipboard();
+    const isConnected = propertyConnectionCount > 0;
+    const showCopy = isConnected;
+    const showPaste = canPasteLink(property, mode, clipboard);
+
+    if (showCopy || showPaste) {
+        const actions = document.createElement("div");
+        actions.className = "ctd-slot-actions";
+
+        if (showCopy) {
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "ctd-action-btn";
+            copyBtn.textContent = "Copy link";
+            copyBtn.addEventListener("click", () =>
+                callbacks.onCopyLink(property, mode),
+            );
+            actions.append(copyBtn);
+        }
+
+        if (showPaste) {
+            const pasteBtn = document.createElement("button");
+            pasteBtn.type = "button";
+            pasteBtn.className = "ctd-action-btn ctd-action-btn--paste";
+            pasteBtn.textContent = "Paste link";
+            pasteBtn.addEventListener("click", () =>
+                callbacks.onPasteLink(panel, targetNode, property, mode),
+            );
+            actions.append(pasteBtn);
+        }
+
+        body.append(actions);
+    }
 
     if (candidates.length) {
         if (mode !== "input") {
@@ -233,7 +307,14 @@ const createPropertyCard = (
         candidateList.append(empty);
     }
 
-    card.append(candidateList);
+    body.append(candidateList);
+    card.append(head, body);
+
+    toggleBtn.addEventListener("click", () => {
+        const isNowCollapsed = card.dataset.collapsed === "true";
+        card.dataset.collapsed = isNowCollapsed ? "false" : "true";
+    });
+
     return card;
 };
 
@@ -288,6 +369,22 @@ const buildPropertyList = (
     return section;
 };
 
+const applySearch = (shell: HTMLElement, query: string): void => {
+    const normalized = query.trim().toLowerCase();
+    const cards = shell.querySelectorAll<HTMLElement>(".ctd-slot-card");
+    for (const card of cards) {
+        if (!normalized) {
+            card.style.display = "";
+            continue;
+        }
+        const slotName = card.dataset.slotName ?? "";
+        const cardText = card.textContent?.toLowerCase() ?? "";
+        const matches =
+            slotName.includes(normalized) || cardText.includes(normalized);
+        card.style.display = matches ? "" : "none";
+    }
+};
+
 export const renderPanelView = ({
     panel,
     targetNode,
@@ -336,26 +433,39 @@ export const renderPanelView = ({
         shell.append(status);
     }
 
-    shell.append(
-        buildPropertyList(
-            panel,
-            targetNode,
-            inputs,
-            "input",
-            renderCache,
-            callbacks,
-        ),
+    // Search box
+    const searchWrap = document.createElement("div");
+    searchWrap.className = "ctd-search-wrap";
+    const searchInput = document.createElement("input");
+    searchInput.type = "search";
+    searchInput.className = "ctd-search";
+    searchInput.placeholder = "Search inputs \u0026 outputs\u2026";
+    searchInput.setAttribute("aria-label", "Search inputs and outputs");
+    searchWrap.append(searchInput);
+    shell.append(searchWrap);
+
+    const inputsSection = buildPropertyList(
+        panel,
+        targetNode,
+        inputs,
+        "input",
+        renderCache,
+        callbacks,
     );
-    shell.append(
-        buildPropertyList(
-            panel,
-            targetNode,
-            outputs,
-            "output",
-            renderCache,
-            callbacks,
-        ),
+    const outputsSection = buildPropertyList(
+        panel,
+        targetNode,
+        outputs,
+        "output",
+        renderCache,
+        callbacks,
     );
+
+    shell.append(inputsSection, outputsSection);
+
+    searchInput.addEventListener("input", () => {
+        applySearch(shell, searchInput.value);
+    });
 
     panel.content.scrollTop = previousScrollTop;
 };
